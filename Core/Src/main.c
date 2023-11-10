@@ -41,6 +41,7 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim4;
 
 UART_HandleTypeDef huart2;
@@ -54,6 +55,7 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM4_Init(void);
+static void MX_TIM3_Init(void);
 /* USER CODE BEGIN PFP */
 void delay(uint16_t uSec);
 void usDelay(uint32_t uSec);
@@ -64,7 +66,7 @@ void usDelay(uint32_t uSec);
 //Define constant for speed of sound (cm/usec)
 const float speedOfSound = 0.0343/2;
 uint16_t distance = 0;
-
+uint32_t on_counts = 0;
 char uartBuf[100];
 
 /* USER CODE END 0 */
@@ -99,8 +101,11 @@ int main(void)
   MX_GPIO_Init();
   MX_USART2_UART_Init();
   MX_TIM4_Init();
+  MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
   HAL_TIM_Base_Start(&htim4);
+
+  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -112,12 +117,12 @@ int main(void)
     /* USER CODE BEGIN 3 */
 	  // Set TRIG to LOW for a few microseconds
 	  HAL_GPIO_WritePin(TRIG_GPIO_Port, TRIG_Pin, GPIO_PIN_RESET);
-	  delay(5);
+	  usDelay(5);
 
 	  //START Ultrasonic Measure Routine
 	  //1. Initiate I/O by sending 10 usec to TRIG
 	  HAL_GPIO_WritePin(TRIG_GPIO_Port, TRIG_Pin, GPIO_PIN_SET);
-	  delay(10);
+	  usDelay(10);
 	  HAL_GPIO_WritePin(TRIG_GPIO_Port, TRIG_Pin, GPIO_PIN_RESET);
 
 	  //2. Wait for ECHO pin rising edge
@@ -127,7 +132,7 @@ int main(void)
 	  numTicks = 0;
 	  while(HAL_GPIO_ReadPin(ECHO_GPIO_Port, ECHO_Pin) == GPIO_PIN_SET){
 		  numTicks++;
-		  delay(2); //2.8 usec
+		  usDelay(2); //2.8 usec
 	  };
 
 	  //4. Estimate distance in cm
@@ -137,7 +142,21 @@ int main(void)
 	  sprintf(uartBuf, "Distance (cm) = %u\r\n", distance);
 	  HAL_UART_Transmit(&huart2, (uint8_t *)uartBuf, strlen(uartBuf), 100);
 
-	  HAL_Delay(600);
+	  // check if the distance is less than 300cm
+	  if(distance < 300 && distance > 15)
+	  {
+		  //6. Calculate number of on counts for the timer
+		  on_counts = 33000 - ((double)(distance/15)) - 1)*(double)(23100/19);
+
+		  //7. set the compare register
+		  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, on_counts);
+	  }else
+	  {
+		  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, 0);
+	  }
+
+
+	  HAL_Delay(100);
 
   }
   /* USER CODE END 3 */
@@ -187,6 +206,55 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief TIM3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM3_Init(void)
+{
+
+  /* USER CODE BEGIN TIM3_Init 0 */
+
+  /* USER CODE END TIM3_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM3_Init 1 */
+
+  /* USER CODE END TIM3_Init 1 */
+  htim3.Instance = TIM3;
+  htim3.Init.Prescaler = 2-1;
+  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim3.Init.Period = 33000-1;
+  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_PWM_Init(&htim3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM3_Init 2 */
+
+  /* USER CODE END TIM3_Init 2 */
+  HAL_TIM_MspPostInit(&htim3);
+
 }
 
 /**
